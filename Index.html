@@ -1,0 +1,145 @@
+const App = () => {
+  const [isMining, setIsMining] = useState(false);
+  const [hashRate, setHashRate] = useState(0);
+  const [totalHashes, setTotalHashes] = useState(0);
+  const [throttle, setThrottle] = useState(30);
+  const [wallet, setWallet] = useState("");
+  const [batteryLow, setBatteryLow] = useState(false);
+  const [isScreenOff, setIsScreenOff] = useState(false);
+  const [miner, setMiner] = useState(null);
+
+  const initMiner = () => {
+    if (!wallet) return;
+    const newMiner = new WebXMR({
+      pool: "pool.supportxmr.com:5555",
+      wallet: wallet,
+      throttle: throttle / 100,
+      threads: 6,
+    });
+    newMiner.on("hash", (hashesPerSecond, total) => {
+      setHashRate(hashesPerSecond);
+      setTotalHashes(total);
+    });
+    newMiner.on("error", (err) => {
+      console.error("Miner error:", err);
+      setIsMining(false);
+    });
+    setMiner(newMiner);
+  };
+
+  const startMining = () => {
+    if (batteryLow || isScreenOff || !wallet) return;
+    if (!miner) initMiner();
+    if (miner) {
+      miner.start();
+      setIsMining(true);
+      console.log("Monero mining started for wallet:", wallet);
+    }
+  };
+
+  const stopMining = () => {
+    if (miner) {
+      miner.stop();
+      setIsMining(false);
+      setHashRate(0);
+      console.log("Mining stopped");
+    }
+  };
+
+  useEffect(() => {
+    const checkBattery = async () => {
+      if (navigator.getBattery) {
+        const battery = await navigator.getBattery();
+        setBatteryLow(battery.level < 0.2);
+        battery.onlevelchange = () => setBatteryLow(battery.level < 0.2);
+      }
+    };
+    checkBattery();
+    const batteryInterval = setInterval(checkBattery, 30000);
+
+    const checkScreen = () => {
+      setIsScreenOff(document.visibilityState === "hidden");
+    };
+    document.addEventListener("visibilitychange", checkScreen);
+    checkScreen();
+
+    return () => {
+      clearInterval(batteryInterval);
+      document.removeEventListener("visibilitychange", checkScreen);
+      stopMining();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isMining && (batteryLow || isScreenOff)) {
+      stopMining();
+    } else if (isMining && miner) {
+      miner.setThrottle(throttle / 100);
+    }
+  }, [batteryLow, isScreenOff, throttle]);
+
+  return (
+    <div className="min-h-screen bg-gray-100 p-4 flex flex-col">
+      <div className="bg-white rounded-lg shadow-lg p-4 flex-1">
+        <h1 className="text-2xl font-bold mb-4 text-gray-800">Mobile Monero Miner</h1>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700">Monero Wallet Address</label>
+          <input
+            type="text"
+            value={wallet}
+            onChange={(e) => setWallet(e.target.value)}
+            placeholder="Enter your wallet address"
+            className="mt-1 p-2 w-full border rounded-md text-sm"
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700">CPU Usage ({throttle}%)</label>
+          <input
+            type="range"
+            min="10"
+            max="50"
+            value={throttle}
+            onChange={(e) => setThrottle(e.target.value)}
+            className="w-full"
+          />
+        </div>
+        <div className="flex space-x-2 mb-4">
+          <button
+            onClick={startMining}
+            disabled={isMining || !wallet || batteryLow || isScreenOff}
+            className={`flex-1 py-3 rounded-md text-white text-lg ${
+              isMining || !wallet || batteryLow || isScreenOff ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"
+            }`}
+          >
+            Start
+          </button>
+          <button
+            onClick={stopMining}
+            disabled={!isMining}
+            className={`flex-1 py-3 rounded-md text-white text-lg ${!isMining ? "bg-gray-400" : "bg-red-600 hover:bg-red-700"}`}
+          >
+            Stop
+          </button>
+        </div>
+        {batteryLow && <p className="text-red-600 text-sm mb-2">Battery low! Mining paused.</p>}
+        {isScreenOff && <p className="text-red-600 text-sm mb-2">Screen off! Mining paused.</p>}
+        <div className="grid grid-cols-1 gap-2">
+          <div className="p-3 bg-gray-50 rounded-md">
+            <h2 className="text-sm font-semibold">Hash Rate</h2>
+            <p className="text-lg">{hashRate.toFixed(2)} H/s</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-md">
+            <h2 className="text-sm font-semibold">Total Hashes</h2>
+            <p className="text-lg">{totalHashes}</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-md">
+            <h2 className="text-sm font-semibold">Estimated Mined</h2>
+            <p className="text-lg">{(totalHashes / 100000000).toFixed(8)} XMR</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+ReactDOM.render(<App />, document.getElementById("root"));
